@@ -1,0 +1,16 @@
+__pycache__/
+build/
+develop-eggs/
+dist/
+eggs/
+.eggs/
+sdist/
+wheels/
+*.egg-info/
+*.egg
+MANIFEST
+env/
+venv/
+.pytest_cache/
+.mypy_cache/
+.vscode/*

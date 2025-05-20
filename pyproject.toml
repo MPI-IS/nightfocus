@@ -1,0 +1,22 @@
+[tool.poetry]
+name = "nightfocus"
+version = "0.1.0"
+description = "autofocus algorithms for clear night sky"
+authors = ["Vincent Berenz <vincent.berenz@tuebingen.mpg.de>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.12"
+numpy = "^2.2.6"
+scipy = "^1.15.3"
+pillow = "^11.2.1"
+tqdm = "^4.67.1"
+matplotlib = "^3.10.3"
+tifffile = "^2025.5.10"
+
+[tool.poetry.scripts]
+nightfocus-crops = "nightfocus.main:create_crops"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
