@@ -13,9 +13,14 @@ pillow = "^11.2.1"
 tqdm = "^4.67.1"
 matplotlib = "^3.10.3"
 tifffile = "^2025.5.10"
+multipledispatch = "^0.6.0"
+types-pillow = "^10.2.0.20240822"
+types-tqdm = "^4.67.0.20250516"
+pytest = "^8.3.5"
 
 [tool.poetry.scripts]
 nightfocus-crops = "nightfocus.main:create_crops"
+nightfocus-dataset = "nightfocus.main:generate_blurred_dataset"
 
 [build-system]
 requires = ["poetry-core"]
