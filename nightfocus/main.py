@@ -1,12 +1,19 @@
 import glob
 import os
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import click
+import cv2
+import numpy as np
+from rich.console import Console
+from rich.table import Table
 
-from .dataset import BlurConfig, Dataset, display_dataset, generate_dataset
+from .dataset import Dataset, display_dataset, generate_dataset
+from .focus_metrics import FOCUS_MEASURES, get_focus_measure
 from .processing import create_random_crops
-from .scoring import entropy_score, evaluate_scoring
+from .scoring import evaluate_scoring
 from .workers import get_num_workers
 
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
@@ -143,6 +150,172 @@ def view(dataset_file: str) -> None:
     - 'q': Quit the viewer
     """
     display_dataset(dataset_file)
+
+
+def _evaluate_single_metric(
+    metric_name: str, metric_func: Callable[[np.ndarray], float], dataset: Dataset
+) -> Tuple[str, Dict[float, float]]:
+    """
+    Evaluate a single focus metric on a dataset.
+
+    Args:
+        metric_name: Name of the metric
+        metric_func: The metric function to evaluate
+        dataset: Dataset containing images with different focus values
+
+    Returns:
+        Tuple of (metric_name, scores_dict) where scores_dict maps focus values to scores
+    """
+    scores = {}
+    for focus, image in dataset.dataset.items():
+        try:
+            # Convert to grayscale if needed (assuming single channel for scoring)
+            if len(image.shape) == 3 and image.shape[2] == 3:
+                gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+            else:
+                gray = image
+
+            # Calculate score and store with focus value as key
+            score = metric_func(gray)
+            scores[float(focus)] = float(score)
+        except Exception as e:
+            print(f"Error evaluating {metric_name} at focus {focus}: {e}")
+            scores[float(focus)] = float("nan")
+
+    return (metric_name, scores)
+
+
+@cli.command()
+@click.argument("dataset_file", type=click.Path(exists=True, dir_okay=False))
+@click.option(
+    "--workers",
+    type=int,
+    default=None,
+    help="Number of worker processes to use. Defaults to number of CPU cores.",
+)
+@click.option(
+    "--metrics",
+    type=str,
+    default=None,
+    help="Comma-separated list of metrics to evaluate. If not provided, all metrics are evaluated.",
+)
+def evaluate_metrics(
+    dataset_file: str, workers: Optional[int] = None, metrics: Optional[str] = None
+) -> None:
+    """
+    Evaluate multiple focus metrics on a dataset and display results in a table.
+
+    Available metrics:
+    - variance_laplacian: Fast Laplacian variance measure
+    - modified_laplacian: Modified Laplacian focus measure
+    - tenengrad: Tenengrad focus measure based on gradient magnitude
+    - normalized_variance: Normalized gray-level variance
+    - spectral_energy: Spectral energy in high frequencies
+    - brenner_gradient: Brenner's gradient measure
+    - threshold_count: Count of bright pixels above threshold
+    - fast_entropy: Faster entropy calculation with binning
+    - wavelet_measure: Wavelet-based focus measure
+    """
+    # Load the dataset
+    try:
+        dataset = Dataset.load(dataset_file)
+    except Exception as e:
+        click.echo(f"Error loading dataset: {e}", err=True)
+        return
+
+    # Determine which metrics to evaluate
+    if metrics:
+        metric_names = [m.strip() for m in metrics.split(",")]
+        invalid_metrics = [m for m in metric_names if m not in FOCUS_MEASURES]
+        if invalid_metrics:
+            click.echo(
+                f"Warning: Unknown metrics: {', '.join(invalid_metrics)}", err=True
+            )
+            click.echo(f"Available metrics: {', '.join(FOCUS_MEASURES.keys())}")
+            metric_names = [m for m in metric_names if m in FOCUS_MEASURES]
+    else:
+        metric_names = list(FOCUS_MEASURES.keys())
+
+    if not metric_names:
+        click.echo("No valid metrics to evaluate.", err=True)
+        return
+
+    # Set up parallel processing
+    workers = workers or get_num_workers()
+    console = Console()
+
+    # Process each metric
+    results = {}
+    tasks = []
+
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        # Submit all tasks
+        for name in metric_names:
+            metric_func = get_focus_measure(name)
+            tasks.append(
+                executor.submit(_evaluate_single_metric, name, metric_func, dataset)
+            )
+
+        # Process results as they complete
+        with console.status("[bold green]Evaluating metrics...") as status:
+            for future in as_completed(tasks):
+                try:
+                    name, scores = future.result()
+                    results[name] = scores
+                    console.log(f"[green]✓[/green] Completed: {name}")
+                except Exception as e:
+                    console.log(f"[red]✗ Error: {e}")
+
+    # Display results in a table
+    if not results:
+        console.print("[red]No results to display.[/red]")
+        return
+
+    # Get all unique focus values from all results
+    all_focus_values: Set[float] = set()
+    for scores in results.values():
+        all_focus_values.update(scores.keys())
+
+    if not all_focus_values:
+        console.print("[red]No focus values found in results.[/red]")
+        return
+
+    # Sort focus values
+    sorted_focus = sorted(all_focus_values)
+
+    # Create and display table
+    table = Table(title=f"Focus Metrics Evaluation - {os.path.basename(dataset_file)}")
+    table.add_column("Focus", justify="right")
+
+    # Add metric columns
+    for name in results.keys():
+        table.add_column(name, justify="right")
+
+    # Add rows for each focus value
+    for focus in sorted_focus:
+        row = [f"{focus:.1f}"]
+        for name in results.keys():
+            score = results[name].get(focus, float("nan"))
+            row.append(f"{score:.4f}" if not np.isnan(score) else "N/A")
+        table.add_row(*row)
+
+    console.print(table)
+
+    # Save results to CSV
+    output_file = f"{os.path.splitext(dataset_file)[0]}_metrics.csv"
+    with open(output_file, "w") as f:
+        # Write header
+        f.write("Focus," + ",".join(results.keys()) + "\n")
+
+        # Write data
+        for focus in sorted_focus:
+            row = [f"{focus:.1f}"]
+            for name in results.keys():
+                score = results[name].get(focus, float("nan"))
+                row.append(f"{score:.6f}" if not np.isnan(score) else "")
+            f.write(",".join(row) + "\n")
+
+    console.print(f"\nResults saved to [cyan]{output_file}[/cyan]")
 
 
 def main():

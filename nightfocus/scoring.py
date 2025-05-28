@@ -12,7 +12,6 @@ from scipy.stats import kendalltau
 from tqdm import tqdm
 
 from .dataset import Dataset, Focus
-from .scoring_functions import entropy_score
 from .workers import get_num_workers
 
 # Configure loguru to use a more compact format

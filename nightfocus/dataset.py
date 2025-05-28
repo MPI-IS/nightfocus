@@ -134,24 +134,24 @@ def _compute_single_blurr(
     max_distance = max(
         abs(f_max - correct_focus), abs(correct_focus - f_min)
     )  # Maximum possible distance
-    
+
     # Avoid division by zero and ensure we have a valid range
     if max_distance == 0:
         normalized_distance = 0.0
     else:
         normalized_distance = distance_from_correct / max_distance
-    
+
     # Apply non-linear scaling to make the blur more pronounced at the extremes
     # Using a cubic function to make the blur increase more rapidly
-    blur_factor = normalized_distance ** 3
-    
+    blur_factor = normalized_distance**3
+
     # Scale the sigma to be more aggressive with the blur
     # The max sigma is set to 10.0 which provides significant blur
     sigma = std + (blur_factor * 10.0)  # Scale up the effect
-    
+
     # Ensure we don't get excessive blur for very large values
     sigma = min(sigma, 15.0)
-    
+
     # Apply Gaussian blur with the calculated sigma
     blurred_image = ndi.gaussian_filter(base_image, sigma=sigma)
     return focus_value, blurred_image
