@@ -52,3 +52,24 @@ def test_almost_perfect_ordering():
     # Should be better than random but not perfect
     score = score_focus_quality(scores, correct_focus=2)
     assert 0.0 <= score < 0.5
+
+
+def test_ordering_quality_decreases_with_disorder():
+    # Start with perfect ordering
+    perfect = {0: 0.9, 1: 0.6, 2: 0.1, 3: 0.7, 4: 0.95}
+    perfect_score = score_focus_quality(perfect, correct_focus=2)
+    assert perfect_score == pytest.approx(0.0, abs=1e-6)
+
+    # Slight disorder
+    slight_disorder = {0: 0.9, 1: 0.6, 2: 0.7, 3: 0.1, 4: 0.95}
+    slight_score = score_focus_quality(slight_disorder, correct_focus=2)
+    assert slight_score > perfect_score
+
+    # More disorder - move the worst focus to be best
+    more_disorder = {0: 0.9, 1: 0.6, 2: 0.95, 3: 0.7, 4: 0.1}
+    more_score = score_focus_quality(more_disorder, correct_focus=2)
+    assert more_score > slight_score
+
+    # Verify all scores are in valid range
+    assert 0.0 <= slight_score <= 1.0
+    assert 0.0 <= more_score <= 1.0

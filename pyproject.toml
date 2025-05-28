@@ -17,10 +17,13 @@ multipledispatch = "^0.6.0"
 types-pillow = "^10.2.0.20240822"
 types-tqdm = "^4.67.0.20250516"
 pytest = "^8.3.5"
+click = "^8.2.1"
+loguru = "^0.7.3"
+rich = "^14.0.0"
+opencv-python = "^4.11.0.86"
 
 [tool.poetry.scripts]
-nightfocus-crops = "nightfocus.main:create_crops"
-nightfocus-dataset = "nightfocus.main:generate_blurred_dataset"
+nightfocus = "nightfocus.main:cli"
 
 [build-system]
 requires = ["poetry-core"]
