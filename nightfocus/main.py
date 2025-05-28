@@ -1,12 +1,13 @@
 import glob
 import os
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, as_completed, Future
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import click
 import cv2
 import numpy as np
+from pathlib import Path
 from rich.console import Console
 from rich.table import Table
 
@@ -368,6 +369,154 @@ def evaluate_metrics(
             f.write(",".join(row) + "\n")
 
     console.print(f"\nResults saved to [cyan]{output_file}[/cyan]")
+
+
+def _process_single_metric_dataset(
+    dataset_path: str, metric_name: str, metric_func: Callable[[np.ndarray], float]
+) -> Tuple[str, float, float, float]:
+    """
+    Process a single dataset file with a single metric.
+    
+    Args:
+        dataset_path: Path to the dataset file
+        metric_name: Name of the metric
+        metric_func: The metric function to evaluate
+        
+    Returns:
+        Tuple of (dataset_name, best_score, best_focus, correct_focus) where:
+        - dataset_name: Base name of the dataset file
+        - best_score: Best score found
+        - best_focus: Focus value that gave the best score
+        - correct_focus: The correct focus value from the dataset
+    """
+    try:
+        # Load the dataset
+        dataset = Dataset.load(dataset_path)
+        
+        # Get the correct focus from the dataset
+        correct_focus = float(dataset.correct_focus) if hasattr(dataset, 'correct_focus') else float('nan')
+        
+        # Evaluate the metric on this dataset
+        _, scores = _evaluate_single_metric(metric_name, metric_func, dataset)
+        
+        if not scores:
+            return (os.path.basename(dataset_path), float('nan'), float('nan'), correct_focus)
+            
+        # Find the best focus and score
+        best_focus, best_score = max(scores.items(), key=lambda x: x[1] if not np.isnan(x[1]) else float('-inf'))
+        return (os.path.basename(dataset_path), best_score, best_focus, correct_focus)
+        
+    except Exception as e:
+        print(f"Error processing {dataset_path}: {e}")
+        return (os.path.basename(dataset_path), float('nan'), float('nan'), float('nan'))
+
+
+@cli.command()
+@click.argument("directory", type=click.Path(exists=True, file_okay=False, dir_okay=True))
+@click.argument("metric", type=click.Choice(list(FOCUS_MEASURES.keys())))
+@click.option(
+    "--workers",
+    type=int,
+    default=None,
+    help="Number of worker processes to use. Defaults to number of CPU cores.",
+)
+def evaluate_directory(directory: str, metric: str, workers: Optional[int] = None) -> None:
+    """
+    Evaluate a single focus metric on all dataset files in a directory.
+    
+    Available metrics:
+    """ + '\n    '.join([f"- {n}: {f.__doc__.split('\n')[0] if f.__doc__ else 'No description'}" 
+             for n, f in FOCUS_MEASURES.items()]) + """
+    """
+    # Find all .pkl files in the directory
+    dataset_files = list(Path(directory).glob("*.pkl"))
+    
+    if not dataset_files:
+        click.echo(f"No .pkl files found in {directory}", err=True)
+        return
+    
+    console = Console()
+    console.print(f"Found {len(dataset_files)} dataset files in {directory}")
+    
+    # Get the metric function
+    metric_func = FOCUS_MEASURES[metric]
+    
+    # Set up parallel processing
+    workers = workers or get_num_workers()
+    
+    # Process each dataset file
+    results = []
+    with ProcessPoolExecutor(max_workers=workers) as executor:
+        # Submit all tasks
+        futures = {
+            executor.submit(_process_single_metric_dataset, str(f), metric, metric_func): f 
+            for f in dataset_files
+        }
+        
+        # Process results as they complete
+        with console.status(f"[bold green]Evaluating {metric} on {len(dataset_files)} datasets...") as status:
+            for future in as_completed(futures):
+                try:
+                    result = future.result()
+                    if result[1] is not None:  # Only add if we got a valid result
+                        results.append(result)
+                    console.log(f"[green]✓[/green] Completed: {futures[future].name}")
+                except Exception as e:
+                    console.log(f"[red]✗ Error processing {futures[future].name}: {e}")
+    
+    if not results:
+        console.print("[red]No valid results to display.[/red]")
+        return
+    
+    # Sort results by best score (descending)
+    results.sort(key=lambda x: x[1] if not np.isnan(x[1]) else float('-inf'), reverse=True)
+    
+    # Create table
+    table = Table(title=f"Metric: {metric} - Focus Analysis")
+    table.add_column("Dataset", style="cyan", no_wrap=True)
+    table.add_column("Best Focus", justify="right")
+    table.add_column("Correct Focus", justify="right")
+    table.add_column("Focus Error", justify="right")
+    
+    # Prepare data for heatmap
+    scores = [r[1] for r in results if not np.isnan(r[1])]
+    min_score = min(scores) if scores else 0
+    max_score = max(scores) if scores else 1
+    
+    def get_heatmap_color(value: float, reverse: bool = False) -> str:
+        if np.isnan(value) or min_score == max_score:
+            return "white"
+        normalized = (value - min_score) / (max_score - min_score)
+        if reverse:
+            normalized = 1 - normalized
+        r = int(255 * normalized)
+        g = int(255 * (1 - normalized))
+        return f"#{r:02x}{g:02x}00"
+    
+    # Add rows with colored output
+    for dataset_name, _, best_focus, correct_focus in results:  # _ is best_score which we're not using
+        # Format best focus
+        best_focus_str = f"{best_focus:.1f}"
+        
+        # Calculate focus error
+        focus_error = abs(best_focus - correct_focus) if not np.isnan(best_focus) and not np.isnan(correct_focus) else float('nan')
+        
+        # Format correct focus
+        correct_focus_str = f"{correct_focus:.1f}"
+        
+        # Format focus error with heatmap color (lower is better)
+        error_color = get_heatmap_color(focus_error, reverse=True)
+        error_str = f"[{error_color}]{focus_error:.1f}"
+        
+        table.add_row(
+            dataset_name,
+            best_focus_str,
+            correct_focus_str,
+            error_str
+        )
+    
+    console.print()
+    console.print(table)
 
 
 def main():
