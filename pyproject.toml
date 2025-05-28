@@ -21,6 +21,8 @@ click = "^8.2.1"
 loguru = "^0.7.3"
 rich = "^14.0.0"
 opencv-python = "^4.11.0.86"
+scikit-optimize = "^0.10.2"
+scikit-image = "^0.25.2"
 
 [tool.poetry.scripts]
 nightfocus = "nightfocus.main:cli"

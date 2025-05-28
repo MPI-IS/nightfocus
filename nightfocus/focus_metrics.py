@@ -180,6 +180,14 @@ def wavelet_based_measure(image: np.ndarray) -> float:
     return np.sum(np.abs(cH)) + np.sum(np.abs(cV)) + np.sum(np.abs(cD))
 
 
+def best_measure(image: np.ndarray) -> float:
+    return tenengrad(image)
+
+
+def second_best_measure(image: np.ndarray) -> float:
+    return spectral_energy(image)
+
+
 # Dictionary of all available focus measures
 FOCUS_MEASURES = {
     "variance_laplacian": variance_of_laplacian,
@@ -191,6 +199,8 @@ FOCUS_MEASURES = {
     "threshold_count": threshold_pixel_count,
     "fast_entropy": fast_entropy,
     "wavelet_measure": wavelet_based_measure,
+    "best_measure": best_measure,
+    "second_best_measure": second_best_measure,
 }
 
 
