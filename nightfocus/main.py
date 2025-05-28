@@ -283,6 +283,19 @@ def evaluate_metrics(
     # Sort focus values
     sorted_focus = sorted(all_focus_values)
 
+    # Prepare data for finding max values and normalizing
+    metrics_data: Dict[str, List[float]] = {}
+    max_values: Dict[str, float] = {}
+    min_values: Dict[str, float] = {}
+    
+    # Find min and max for each metric
+    for name in results.keys():
+        scores = [s for s in results[name].values() if not np.isnan(s)]
+        if scores:  # Only process if we have valid scores
+            metrics_data[name] = scores
+            max_values[name] = max(scores)
+            min_values[name] = min(scores)
+    
     # Create and display table
     table = Table(title=f"Focus Metrics Evaluation - {os.path.basename(dataset_file)}")
     table.add_column("Focus", justify="right")
@@ -291,14 +304,53 @@ def evaluate_metrics(
     for name in results.keys():
         table.add_column(name, justify="right")
 
+    # Function to get color based on value (heatmap style)
+    def get_heatmap_color(value: float, min_val: float, max_val: float) -> str:
+        if np.isnan(value) or min_val == max_val:
+            return "white"
+        # Normalize value between 0 and 1
+        normalized = (value - min_val) / (max_val - min_val)
+        # Convert to 0-255 for RGB
+        r = int(255 * normalized)
+        g = int(255 * (1 - normalized))
+        b = 0
+        return f"#{r:02x}{g:02x}{b:02x}"
+
     # Add rows for each focus value
     for focus in sorted_focus:
-        row = [f"{focus:.1f}"]
+        row = [f"[white]{focus:.1f}"]
+        
         for name in results.keys():
             score = results[name].get(focus, float("nan"))
-            row.append(f"{score:.4f}" if not np.isnan(score) else "N/A")
+            
+            if np.isnan(score):
+                row.append("N/A")
+                continue
+                
+            # Check if this is the max value for this metric
+            is_max = abs(score - max_values.get(name, -float('inf'))) < 1e-10
+            
+            # Get heatmap color
+            color = get_heatmap_color(
+                score, 
+                min_values.get(name, 0), 
+                max_values.get(name, 1)
+            )
+            
+            # Format the value with color and bold if it's the max
+            value_str = f"{score:.4f}"
+            if is_max:
+                value_str = f"[bold white on {color}]{value_str}"
+            else:
+                value_str = f"[{color}]{value_str}"
+                
+            row.append(value_str)
+            
         table.add_row(*row)
-
+    
+    # Add a legend
+    console.print("[bold]Legend:[/bold] [red]Higher values[/red] are better. [bold]Bold values[/bold] indicate the best focus for each metric.")
+    console.print()
     console.print(table)
 
     # Save results to CSV
