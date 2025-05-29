@@ -2,42 +2,96 @@
 
 [![Tests](https://github.com/yourusername/nightfocus/actions/workflows/tests.yml/badge.svg)](https://github.com/yourusername/nightfocus/actions/workflows/tests.yml)
 
-A Python library for focus optimization in astrophotography.
+## What it is
 
-## Features
+Simple python package for automated focus optimization of astrophotography image patches.
 
-- Focus optimization using various focus metrics
-- Support for both simulated and real cameras
-- Dataset generation and management
-- Comprehensive test suite
+## How to use it
 
-## CI/CD Status
+1. create a sublcass of Camera for your camera. It must implement the take_picture method:
 
-This project uses GitHub Actions for continuous integration. Every push to `master` and every pull request triggers the test suite, which runs:
 
-- Unit tests with pytest
-- Compatibility testing across Python 3.8, 3.9, 3.10, and 3.11
+```python
+from nightfocus.camera import Camera
+
+class MyCamera(Camera):
+    def take_picture(self, focus: int) -> np.ndarray:
+        raise NotImplementedError
+```
+
+2. perform focus optimization:
+
+```python
+from nightfocus import optimize_focus
+
+best_focus, _ = optimize_focus(camera, bounds=(0, 100))
+```
+
+## Under the hood
+
+NightFocus uses Bayesian optimization to find the best focus position. The default metric used is the tenengrad focus measure:
+
+```python
+def tenengrad(image: np.ndarray, ksize: int = 3) -> float:
+    """
+    Tenengrad focus measure based on gradient magnitude.
+    Works well for star images and is computationally efficient.
+    """
+    if len(image.shape) == 3:
+        gray = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+    else:
+        gray = image
+
+    gx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=ksize)
+    gy = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=ksize)
+    return float(np.mean(gx**2 + gy**2))
+```
+
+Other metrics are available in the `nightfocus.focus_metrics` module:
+
+```python
+from nightfocus.focus_metrics import FOCUS_MEASURES
+
+FOCUS_MEASURES = {
+    "tenengrad": tenengrad,
+    "modified_laplacian": modified_laplacian,
+    "normalized_variance": normalized_variance,
+    "spectral_energy": spectral_energy,
+    "brenner_gradient": brenner_gradient,
+    "threshold_count": threshold_count,
+    "fast_entropy": fast_entropy,
+    "wavelet_measure": wavelet_measure,
+}
+```
+
+### How we know it works
+
+It could find the correct focus when running on the datasets located in the `images` folder. A dataset file corresponds to a corresponding tiff image on which increasing values of blur where applied.
+
+## Command Line Interface
+
+NightFocus includes a CLI for common tasks:
+
+```bash
+nightfocus --help
+```
+
+It provides this commands:
+
+- crops: Create random crops from an image.
+- dataset: Generate blurred dataset from TIFF files with increasing blur.
+- evaluate: Evaluate focus scoring on a dataset.
+- evaluate-directory: Evaluate focus scoring on a directory of images.
+- evaluate-metrics: Evaluate multiple focus metrics on a dataset and print results.
+- view: View images from a dataset file with their focus values.
 
 ## Installation
 
 ```bash
-pip install -e .[dev]
+pip install nightfocus
 ```
 
-## Running Tests
+## Author
 
-```bash
-pytest tests/
-```
+Vincent Berenz, Max Planck Institute for Intelligent Systems, Tuebingen, Germany
 
-## Development
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Run tests and ensure they pass
-5. Submit a pull request
-
-## License
-
-MIT
