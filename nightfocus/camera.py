@@ -2,23 +2,33 @@
 
 from __future__ import annotations
 
+import os
 from abc import ABC, abstractmethod
-from typing import Callable, List, Optional, Tuple, TypeVar
+from pathlib import Path
+from typing import Callable, Dict, List, Optional, Tuple, TypeVar, Union
 
-import cv2  # type: ignore[import]
+import cv2
 import numpy as np
+import numpy.typing as npt
 from skopt import gp_minimize
 from skopt.space import Integer
 from skopt.utils import use_named_args
 
-from .focus_metrics import FOCUS_MEASURES, best_measure
+from .dataset import Dataset
+from .focus_metrics import best_measure
 
 # Type variables for better type hints
 T = TypeVar("T", int, float)
 
-# Type aliases
+# Define types
 Focus = int
-Image = np.ndarray  # type: ignore[valid-type]
+# Type for numpy arrays (2D or 3D with color channels)
+Image = Union[
+    npt.NDArray[np.uint8],  # Grayscale
+    npt.NDArray[np.float32],  # Normalized grayscale
+    npt.NDArray[np.uint8],  # RGB/BGR
+    npt.NDArray[np.float32],  # Normalized color
+]
 FocusMeasure = Callable[[Image], float]
 FocusHistory = List[Tuple[float, float]]
 
@@ -42,7 +52,7 @@ class Camera(ABC):
 
 def optimize_focus(
     camera: "Camera",
-    focus_measure: Optional[FocusMeasure] = None,
+    focus_measure: FocusMeasure,
     bounds: Tuple[Focus, Focus] = (0, 100),
     initial_points: int = 5,
     max_iter: int = 20,
@@ -170,3 +180,83 @@ class SimulatedCamera(Camera):
         pattern = np.clip(pattern + noise, 0, 1)
 
         return (pattern * 255).astype(np.uint8)
+
+
+class DatasetCamera(Camera):
+    """
+    A camera that loads images from a pre-generated dataset file.
+    The dataset should be a pickle file containing a Dataset object.
+    """
+
+    def __init__(self, dataset_path: Union[str, os.PathLike]):
+        """
+        Initialize the dataset camera.
+
+        Args:
+            dataset_path: Path to the dataset pickle file
+        """
+        self.dataset_path = Path(dataset_path)
+        if not self.dataset_path.exists():
+            raise FileNotFoundError(f"Dataset file not found: {self.dataset_path}")
+
+        # Load the dataset
+        self.dataset = Dataset.load(str(self.dataset_path))
+
+        # Create a mapping of focus values to images
+        self.images: Dict[Focus, np.ndarray] = {}
+        for focus, image in self.dataset.dataset.items():
+            # Convert to grayscale if needed
+            if len(image.shape) == 3 and image.shape[2] == 3:
+                self.images[focus] = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+            else:
+                self.images[focus] = image
+
+        # Get available focus values
+        self.available_focus = sorted(self.images.keys())
+        self.min_focus = min(self.available_focus)
+        self.max_focus = max(self.available_focus)
+
+        if self.dataset.correct_focus is not None:
+            self.best_focus = self.dataset.correct_focus
+        else:
+            # If correct_focus is not specified, use the middle of the range
+            self.best_focus = (self.min_focus + self.max_focus) // 2
+
+    def take_picture(self, focus: Focus) -> Image:
+        """
+        Get an image from the dataset with the specified focus.
+        If the exact focus is not found, returns the closest available focus.
+
+        Args:
+            focus: The focus value to retrieve
+
+        Returns:
+            The image at the specified focus or the closest available focus
+        """
+        # Return exact match if available
+        if focus in self.images:
+            return self.images[focus].copy()
+
+        # Find the closest focus value
+        closest_focus = min(self.available_focus, key=lambda x: abs(x - focus))
+
+        return self.images[closest_focus].copy()
+
+    @property
+    def focus_range(self) -> Tuple[Focus, Focus]:
+        """Return the minimum and maximum available focus values."""
+        return (self.min_focus, self.max_focus)
+
+    @property
+    def image_shape(self) -> tuple[int, int]:
+        """Return the shape of the images in the dataset."""
+        return next(iter(self.images.values())).shape[:2]
+
+    def __str__(self) -> str:
+        """Return a string representation of the dataset camera."""
+        return (
+            f"DatasetCamera(dataset='{self.dataset_path.name}', "
+            f"focus_range=({self.min_focus}, {self.max_focus}), "
+            f"best_focus={self.best_focus}, "
+            f"image_shape={self.image_shape})"
+        )

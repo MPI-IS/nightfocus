@@ -1,9 +1,10 @@
 import glob
 import os
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import click
+import cv2
 import numpy as np
 from rich.console import Console
 from rich.table import Table
@@ -286,15 +287,15 @@ def evaluate_metrics(
     metrics_data: Dict[str, List[float]] = {}
     max_values: Dict[str, float] = {}
     min_values: Dict[str, float] = {}
-    
+
     # Find min and max for each metric
-    for name in results.keys():
-        scores = [s for s in results[name].values() if not np.isnan(s)]
-        if scores:  # Only process if we have valid scores
-            metrics_data[name] = scores
-            max_values[name] = max(scores)
-            min_values[name] = min(scores)
-    
+    for name, scores_dict in results.items():
+        valid_scores = [s for s in scores_dict.values() if not np.isnan(s)]
+        if valid_scores:  # Only process if we have valid scores
+            metrics_data[name] = valid_scores
+            max_values[name] = max(valid_scores)
+            min_values[name] = min(valid_scores)
+
     # Create and display table
     table = Table(title=f"Focus Metrics Evaluation - {os.path.basename(dataset_file)}")
     table.add_column("Focus", justify="right")
@@ -318,37 +319,37 @@ def evaluate_metrics(
     # Add rows for each focus value
     for focus in sorted_focus:
         row = [f"[white]{focus:.1f}"]
-        
+
         for name in results.keys():
             score = results[name].get(focus, float("nan"))
-            
+
             if np.isnan(score):
                 row.append("N/A")
                 continue
-                
+
             # Check if this is the max value for this metric
-            is_max = abs(score - max_values.get(name, -float('inf'))) < 1e-10
-            
+            is_max = abs(score - max_values.get(name, -float("inf"))) < 1e-10
+
             # Get heatmap color
             color = get_heatmap_color(
-                score, 
-                min_values.get(name, 0), 
-                max_values.get(name, 1)
+                score, min_values.get(name, 0), max_values.get(name, 1)
             )
-            
+
             # Format the value with color and bold if it's the max
             value_str = f"{score:.4f}"
             if is_max:
                 value_str = f"[bold white on {color}]{value_str}"
             else:
                 value_str = f"[{color}]{value_str}"
-                
+
             row.append(value_str)
-            
+
         table.add_row(*row)
-    
+
     # Add a legend
-    console.print("[bold]Legend:[/bold] [red]Higher values[/red] are better. [bold]Bold values[/bold] indicate the best focus for each metric.")
+    console.print(
+        "[bold]Legend:[/bold] [red]Higher values[/red] are better. [bold]Bold values[/bold] indicate the best focus for each metric."
+    )
     console.print()
     console.print(table)
 
@@ -367,7 +368,9 @@ def evaluate_metrics(
 
 
 @cli.command()
-@click.argument("directory", type=click.Path(exists=True, file_okay=False, dir_okay=True))
+@click.argument(
+    "directory", type=click.Path(exists=True, file_okay=False, dir_okay=True)
+)
 @click.argument("metric", type=click.Choice(list(FOCUS_MEASURES.keys())))
 @click.option(
     "--workers",
@@ -375,14 +378,20 @@ def evaluate_metrics(
     default=None,
     help="Number of worker processes to use. Defaults to number of CPU cores.",
 )
-def evaluate_directory(directory: str, metric: str, workers: Optional[int] = None) -> None:
+def evaluate_directory(
+    directory: str, metric: str, workers: Optional[int] = None
+) -> None:
     """
     Evaluate a single focus metric on all dataset files in a directory.
     
     Available metrics:
-    """ + '\n    '.join([f"- {n}: {f.__doc__.split('\n')[0] if f.__doc__ else 'No description'}" 
-              for n, f in FOCUS_MEASURES.items()])
-    
+    """ + "\n    ".join(
+        [
+            f"- {n}: {f.__doc__.split('\n')[0] if f.__doc__ else 'No description'}"
+            for n, f in FOCUS_MEASURES.items()
+        ]
+    )
+
     # Delegate to the evaluation module
     evaluate_metric_on_directory(directory, metric, workers)
 
