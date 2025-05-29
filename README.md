@@ -1,6 +1,6 @@
 # NightFocus
 
-[![Tests](https://github.com/yourusername/nightfocus/actions/workflows/tests.yml/badge.svg)](https://github.com/yourusername/nightfocus/actions/workflows/tests.yml)
+[![Tests](https://github.com/MPI-IS/nightfocus/actions/workflows/tests.yml/badge.svg)](https://github.com/MPI-IS/nightfocus/actions/workflows/tests.yml)
 
 ## What it is
 
