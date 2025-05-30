@@ -182,7 +182,7 @@ def optimize_focus(
         try:
             img = camera.take_picture(focus_int)
             score = float(focus_measure(img))
-            logger.info(f"Focus={focus_int}, score={score:.4f}")
+            logger.debug(f"Focus={focus_int}, score={score:.4f}")
 
             # Save the image if output folder is specified
             save_image(img, focus_int, score)
@@ -226,7 +226,7 @@ def optimize_focus(
     history_sorted = sorted(history, key=lambda x: x[0])
 
     # Log the optimization history as a table
-    _log_optimization_history(history)
+    _log_optimization_history(history_sorted)
 
     return best_focus, history_sorted
 
