@@ -9,7 +9,6 @@ from typing import Union
 
 import cv2
 import numpy as np
-from scipy import ndimage
 
 
 def normalize_image(image: np.ndarray) -> np.ndarray:
