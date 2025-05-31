@@ -3,6 +3,13 @@
 from __future__ import annotations
 
 import os
+from typing import List, Tuple, Sequence, Optional, Union
+from io import StringIO
+import numpy as np
+import plotext as plt
+from rich.console import Console
+from rich.table import Table
+from loguru import logger
 from abc import ABC, abstractmethod
 from io import StringIO
 from pathlib import Path
@@ -80,10 +87,10 @@ class Camera(ABC):
 
 def _log_optimization_history(history: Sequence[Tuple[float, float]]) -> None:
     """
-    Log the optimization history as a formatted table using Rich.
+    Log the optimization history as a formatted table and plot using Rich and Plotext.
 
     Args:
-        history: List of (focus, score) tuples to be displayed in the table
+        history: List of (focus, score) tuples to be displayed in the table and plot
     """
     if not history:
         logger.warning("No history data to display")
@@ -114,6 +121,39 @@ def _log_optimization_history(history: Sequence[Tuple[float, float]]) -> None:
 
     # Log the table using loguru
     logger.info("\n" + table_output.getvalue())
+
+    
+    # Create a terminal plot
+    try:
+        # Extract focus and score values
+        focus_vals = [h[0] for h in history]
+        scores = [h[1] for h in history]
+        
+        # Sort by focus for better visualization
+        sorted_pairs = sorted(zip(focus_vals, scores), key=lambda x: x[0])
+        focus_vals, scores = zip(*sorted_pairs)
+        
+        # Create the plot
+        plt.clear_figure()
+        plt.plot(focus_vals, scores, marker="dot", label="Score")
+        plt.title("Focus Optimization History")
+        plt.xlabel("Focus Value")
+        plt.ylabel("Score")
+        plt.grid(True)
+        
+        # Add markers for all points
+        plt.scatter(focus_vals, scores, marker="dot")
+        
+        # Find and highlight the best focus
+        best_idx = np.argmax(scores)
+        plt.scatter([focus_vals[best_idx]], [scores[best_idx]], marker="*", color="red")
+        
+        # Show the plot
+        logger.info("\nFocus Optimization Plot:")
+        plt.show()
+        
+    except Exception as e:
+        logger.warning(f"Failed to create terminal plot: {str(e)}")
 
 
 def optimize_focus(
